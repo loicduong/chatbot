@@ -1,10 +1,8 @@
 "use server";
 
 import { z } from "zod";
-
-import { createUser, getUser } from "@/lib/db/queries";
-
-import { signIn } from "./auth";
+import { ensureUserProfile, getUser } from "@/lib/db/queries";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const authFormSchema = z.object({
   email: z.string().email(),
@@ -20,15 +18,25 @@ export const login = async (
   formData: FormData
 ): Promise<LoginActionState> => {
   try {
-    const validatedData = authFormSchema.parse({
+    const { email, password } = authFormSchema.parse({
       email: formData.get("email"),
       password: formData.get("password"),
     });
 
-    await signIn("credentials", {
-      email: validatedData.email,
-      password: validatedData.password,
-      redirect: false,
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error || !data.user) {
+      return { status: "failed" };
+    }
+
+    await ensureUserProfile({
+      id: data.user.id,
+      email: data.user.email,
+      isAnonymous: false,
     });
 
     return { status: "success" };
@@ -48,6 +56,7 @@ export type RegisterActionState = {
     | "success"
     | "failed"
     | "user_exists"
+    | "check_email"
     | "invalid_data";
 };
 
@@ -56,22 +65,36 @@ export const register = async (
   formData: FormData
 ): Promise<RegisterActionState> => {
   try {
-    const validatedData = authFormSchema.parse({
+    const { email, password } = authFormSchema.parse({
       email: formData.get("email"),
       password: formData.get("password"),
     });
 
-    const [user] = await getUser(validatedData.email);
+    const supabase = await createSupabaseServerClient();
+    const [existingUser] = await getUser(email);
 
-    if (user) {
-      return { status: "user_exists" } as RegisterActionState;
+    if (existingUser) {
+      return { status: "user_exists" };
     }
-    await createUser(validatedData.email, validatedData.password);
-    await signIn("credentials", {
-      email: validatedData.email,
-      password: validatedData.password,
-      redirect: false,
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
     });
+
+    if (error || !data.user) {
+      return { status: "failed" };
+    }
+
+    await ensureUserProfile({
+      id: data.user.id,
+      email: data.user.email,
+      isAnonymous: false,
+    });
+
+    if (!data.session) {
+      return { status: "check_email" };
+    }
 
     return { status: "success" };
   } catch (error) {

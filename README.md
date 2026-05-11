@@ -24,27 +24,29 @@
 - [AI SDK](https://ai-sdk.dev/docs/introduction)
   - Unified API for generating text, structured objects, and tool calls with LLMs
   - Hooks for building dynamic chat and generative user interfaces
-  - Supports OpenAI, Anthropic, Google, xAI, and other model providers via AI Gateway
+  - Uses Google Gemini through `@ai-sdk/google`
 - [shadcn/ui](https://ui.shadcn.com)
   - Styling with [Tailwind CSS](https://tailwindcss.com)
   - Component primitives from [Radix UI](https://radix-ui.com) for accessibility and flexibility
 - Data Persistence
-  - [Neon Serverless Postgres](https://vercel.com/marketplace/neon) for saving chat history and user data
-  - [Vercel Blob](https://vercel.com/storage/blob) for efficient file storage
-- [Auth.js](https://authjs.dev)
-  - Simple and secure authentication
+  - [Supabase](https://supabase.com) client APIs for chat history, auth profiles, and file storage
+- [Supabase Auth](https://supabase.com/docs/guides/auth)
+  - Email/password and guest sessions
 
 ## Model Providers
 
-This template uses the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) to access multiple AI models through a unified interface. Models are configured in `lib/ai/models.ts` with per-model provider routing. Included models: Mistral, Moonshot, DeepSeek, OpenAI, and xAI.
+This template uses the [Google Generative AI provider](https://ai-sdk.dev/providers/ai-sdk-providers/google-generative-ai) from the AI SDK. Models are configured in `lib/ai/models.ts`; set `GOOGLE_GENERATIVE_AI_API_KEY` in your environment before running chat requests.
 
-### AI Gateway Authentication
+## Supabase
 
-**For Vercel deployments**: Authentication is handled automatically via OIDC tokens.
+The app uses Supabase for Auth, database access through `@supabase/supabase-js`, and Storage uploads. Configure:
 
-**For non-Vercel deployments**: You need to provide an AI Gateway API key by setting the `AI_GATEWAY_API_KEY` environment variable in your `.env.local` file.
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_STORAGE_BUCKET`
 
-With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to direct LLM providers like [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://ai-sdk.dev/providers/ai-sdk-providers) with just a few lines of code.
+Create the storage bucket named by `SUPABASE_STORAGE_BUCKET` and make it public if you want uploaded image URLs to render directly in chat.
 
 ## Deploy Your Own
 
@@ -58,13 +60,8 @@ You will need to use the environment variables [defined in `.env.example`](.env.
 
 > Note: You should not commit your `.env` file or it will expose secrets that will allow others to control access to your various AI and authentication provider accounts.
 
-1. Install Vercel CLI: `npm i -g vercel`
-2. Link local instance with Vercel and GitHub accounts (creates `.vercel` directory): `vercel link`
-3. Download your environment variables: `vercel env pull`
-
 ```bash
 pnpm install
-pnpm db:migrate # Setup database or apply latest database changes
 pnpm dev
 ```
 

@@ -1,99 +1,55 @@
-import { compare } from "bcrypt-ts";
-import NextAuth, { type DefaultSession } from "next-auth";
-import type { DefaultJWT } from "next-auth/jwt";
-import Credentials from "next-auth/providers/credentials";
-import { DUMMY_PASSWORD } from "@/lib/constants";
-import { createGuestUser, getUser } from "@/lib/db/queries";
-import { authConfig } from "./auth.config";
+import { redirect } from "next/navigation";
+import type { AppSession } from "@/lib/auth/types";
+import { ensureUserProfile } from "@/lib/db/queries";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export type UserType = "guest" | "regular";
+export type { UserType } from "@/lib/auth/types";
+export type Session = AppSession;
 
-declare module "next-auth" {
-  interface Session extends DefaultSession {
+export async function auth(): Promise<AppSession | null> {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return null;
+  }
+
+  const isGuest =
+    user.is_anonymous === true ||
+    user.user_metadata?.is_guest === true ||
+    user.email?.startsWith("guest-") === true;
+
+  await ensureUserProfile({
+    id: user.id,
+    email: user.email,
+    isAnonymous: isGuest,
+  });
+
+  return {
     user: {
-      id: string;
-      type: UserType;
-    } & DefaultSession["user"];
-  }
-
-  interface User {
-    id?: string;
-    email?: string | null;
-    type: UserType;
-  }
+      id: user.id,
+      email: user.email,
+      name:
+        typeof user.user_metadata?.name === "string"
+          ? user.user_metadata.name
+          : null,
+      image:
+        typeof user.user_metadata?.avatar_url === "string"
+          ? user.user_metadata.avatar_url
+          : null,
+      type: isGuest ? "guest" : "regular",
+    },
+  };
 }
 
-declare module "next-auth/jwt" {
-  interface JWT extends DefaultJWT {
-    id: string;
-    type: UserType;
+export async function signOut(options?: { redirectTo?: string }) {
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut({ scope: "local" });
+
+  if (options?.redirectTo) {
+    redirect(options.redirectTo);
   }
 }
-
-export const {
-  handlers: { GET, POST },
-  auth,
-  signIn,
-  signOut,
-} = NextAuth({
-  ...authConfig,
-  providers: [
-    Credentials({
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        const email = String(credentials.email ?? "");
-        const password = String(credentials.password ?? "");
-        const users = await getUser(email);
-
-        if (users.length === 0) {
-          await compare(password, DUMMY_PASSWORD);
-          return null;
-        }
-
-        const [user] = users;
-
-        if (!user.password) {
-          await compare(password, DUMMY_PASSWORD);
-          return null;
-        }
-
-        const passwordsMatch = await compare(password, user.password);
-
-        if (!passwordsMatch) {
-          return null;
-        }
-
-        return { ...user, type: "regular" };
-      },
-    }),
-    Credentials({
-      id: "guest",
-      credentials: {},
-      async authorize() {
-        const [guestUser] = await createGuestUser();
-        return { ...guestUser, type: "guest" };
-      },
-    }),
-  ],
-  callbacks: {
-    jwt({ token, user }) {
-      if (user) {
-        token.id = user.id as string;
-        token.type = user.type;
-      }
-
-      return token;
-    },
-    session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id;
-        session.user.type = token.type;
-      }
-
-      return session;
-    },
-  },
-});

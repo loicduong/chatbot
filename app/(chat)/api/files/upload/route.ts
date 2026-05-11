@@ -1,8 +1,8 @@
-import { put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-
 import { auth } from "@/app/(auth)/auth";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { getSupabaseStorageBucket } from "@/lib/supabase/env";
 
 const FileSchema = z.object({
   file: z
@@ -46,17 +46,31 @@ export async function POST(request: Request) {
 
     const filename = (formData.get("file") as File).name;
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const fileBuffer = await file.arrayBuffer();
+    const extension = safeName.split(".").pop();
+    const pathname = `${session.user.id}/${crypto.randomUUID()}${
+      extension ? `.${extension}` : ""
+    }`;
 
-    try {
-      const data = await put(`${safeName}`, fileBuffer, {
-        access: "public",
+    const supabase = createSupabaseAdminClient();
+    const bucket = getSupabaseStorageBucket();
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(pathname, file, {
+        contentType: file.type,
+        upsert: false,
       });
 
-      return NextResponse.json(data);
-    } catch (_error) {
+    if (error) {
       return NextResponse.json({ error: "Upload failed" }, { status: 500 });
     }
+
+    const { data } = supabase.storage.from(bucket).getPublicUrl(pathname);
+
+    return NextResponse.json({
+      url: data.publicUrl,
+      pathname: safeName,
+      contentType: file.type,
+    });
   } catch (_error) {
     return NextResponse.json(
       { error: "Failed to process request" },
